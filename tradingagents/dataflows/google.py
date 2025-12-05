@@ -1,21 +1,26 @@
 from typing import Annotated
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
 from .googlenews_utils import getNewsData
 
 
 def get_google_news(
-    query: Annotated[str, "Query to search with"],
-    curr_date: Annotated[str, "Curr date in yyyy-mm-dd format"],
-    look_back_days: Annotated[int, "how many days to look back"],
+    ticker: Annotated[str, "Ticker symbol or query to search with"],
+    start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
+    end_date: Annotated[str, "End date in yyyy-mm-dd format"],
 ) -> str:
-    query = query.replace(" ", "+")
+    """
+    Retrieve Google News for a given ticker/query within a date range.
 
-    start_date = datetime.strptime(curr_date, "%Y-%m-%d")
-    before = start_date - relativedelta(days=look_back_days)
-    before = before.strftime("%Y-%m-%d")
+    Args:
+        ticker: Ticker symbol or query to search with
+        start_date: Start date in yyyy-mm-dd format
+        end_date: End date in yyyy-mm-dd format
 
-    news_results = getNewsData(query, before, curr_date)
+    Returns:
+        str: Formatted string containing news articles
+    """
+    query = ticker.replace(" ", "+")
+
+    news_results = getNewsData(query, start_date, end_date)
 
     news_str = ""
 
@@ -27,4 +32,4 @@ def get_google_news(
     if len(news_results) == 0:
         return ""
 
-    return f"## {query} Google News, from {before} to {curr_date}:\n\n{news_str}"
+    return f"## {query} Google News, from {start_date} to {end_date}:\n\n{news_str}"

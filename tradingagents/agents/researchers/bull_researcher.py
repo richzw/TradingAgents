@@ -2,8 +2,29 @@ from langchain_core.messages import AIMessage
 import time
 import json
 
+from tradingagents.agents.utils.context_reduction import (
+    reduce_researcher_context,
+    get_context_stats,
+)
 
-def create_bull_researcher(llm, memory):
+
+def create_bull_researcher(llm, memory, summarization_llm=None, config=None):
+    """
+    Create a bull researcher node.
+
+    Args:
+        llm: The LLM to use for generating arguments
+        memory: The memory store for retrieving past experiences
+        summarization_llm: Optional LLM for context summarization (defaults to llm)
+        config: Optional config dict with token_budgets and enable_context_reduction
+    """
+    # Use the main LLM for summarization if not provided
+    summary_llm = summarization_llm or llm
+
+    # Get config settings
+    enable_reduction = config.get("enable_context_reduction", True) if config else True
+    token_budgets = config.get("token_budgets", None) if config else None
+
     def bull_node(state) -> dict:
         investment_debate_state = state["investment_debate_state"]
         history = investment_debate_state.get("history", "")
@@ -21,6 +42,28 @@ def create_bull_researcher(llm, memory):
         past_memory_str = ""
         for i, rec in enumerate(past_memories, 1):
             past_memory_str += rec["recommendation"] + "\n\n"
+
+        # Apply context reduction if enabled
+        if enable_reduction:
+            reduced_context = reduce_researcher_context(
+                market_research_report,
+                sentiment_report,
+                news_report,
+                fundamentals_report,
+                history,
+                current_response,
+                past_memory_str,
+                summary_llm,
+                token_budgets,
+            )
+            
+            market_research_report = reduced_context["market_report"]
+            sentiment_report = reduced_context["sentiment_report"]
+            news_report = reduced_context["news_report"]
+            fundamentals_report = reduced_context["fundamentals_report"]
+            history = reduced_context["debate_history"]
+            current_response = reduced_context["current_response"]
+            past_memory_str = reduced_context["past_memories"]
 
         prompt = f"""You are a Bull Analyst advocating for investing in the stock. Your task is to build a strong, evidence-based case emphasizing growth potential, competitive advantages, and positive market indicators. Leverage the provided research and data to address concerns and counter bearish arguments effectively.
 
@@ -46,9 +89,13 @@ Use this information to deliver a compelling bull argument, refute the bear's co
 
         argument = f"Bull Analyst: {response.content}"
 
+        # Use original history from state for storing (not reduced)
+        original_history = investment_debate_state.get("history", "")
+        original_bull_history = investment_debate_state.get("bull_history", "")
+
         new_investment_debate_state = {
-            "history": history + "\n" + argument,
-            "bull_history": bull_history + "\n" + argument,
+            "history": original_history + "\n" + argument,
+            "bull_history": original_bull_history + "\n" + argument,
             "bear_history": investment_debate_state.get("bear_history", ""),
             "current_response": argument,
             "count": investment_debate_state["count"] + 1,

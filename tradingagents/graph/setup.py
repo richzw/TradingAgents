@@ -1,6 +1,6 @@
 # TradingAgents/graph/setup.py
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph, START
 from langgraph.prebuilt import ToolNode
@@ -25,6 +25,7 @@ class GraphSetup:
         invest_judge_memory,
         risk_manager_memory,
         conditional_logic: ConditionalLogic,
+        config: Optional[Dict[str, Any]] = None,
     ):
         """Initialize with required components."""
         self.quick_thinking_llm = quick_thinking_llm
@@ -36,6 +37,7 @@ class GraphSetup:
         self.invest_judge_memory = invest_judge_memory
         self.risk_manager_memory = risk_manager_memory
         self.conditional_logic = conditional_logic
+        self.config = config or {}
 
     def setup_graph(
         self, selected_analysts=["market", "social", "news", "fundamentals"]
@@ -86,11 +88,18 @@ class GraphSetup:
             tool_nodes["fundamentals"] = self.tool_nodes["fundamentals"]
 
         # Create researcher and manager nodes
+        # Pass config for context reduction settings
         bull_researcher_node = create_bull_researcher(
-            self.quick_thinking_llm, self.bull_memory
+            self.quick_thinking_llm,
+            self.bull_memory,
+            summarization_llm=self.quick_thinking_llm,
+            config=self.config,
         )
         bear_researcher_node = create_bear_researcher(
-            self.quick_thinking_llm, self.bear_memory
+            self.quick_thinking_llm,
+            self.bear_memory,
+            summarization_llm=self.quick_thinking_llm,
+            config=self.config,
         )
         research_manager_node = create_research_manager(
             self.deep_thinking_llm, self.invest_judge_memory

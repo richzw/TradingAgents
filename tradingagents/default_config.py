@@ -17,6 +17,21 @@ DEFAULT_CONFIG = {
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
+    # Context reduction settings
+    # Enable/disable automatic context reduction for researchers
+    "enable_context_reduction": True,
+    # Token budgets for different context components (used by researchers)
+    "token_budgets": {
+        "market_report": 800,        # Market analysis report
+        "sentiment_report": 600,     # Social media sentiment report
+        "news_report": 800,          # News analysis report
+        "fundamentals_report": 800,  # Company fundamentals report
+        "debate_history": 1000,      # Bull/Bear debate history
+        "current_response": 500,     # Current response from other analyst
+        "past_memories": 400,        # Retrieved past memories
+        "system_prompt": 500,        # System prompt overhead
+        "total_max": 6000,           # Maximum total context tokens
+    },
     # Data vendor configuration
     # Category-level configuration (default for all tools in category)
     "data_vendors": {

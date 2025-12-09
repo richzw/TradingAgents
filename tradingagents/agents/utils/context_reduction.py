@@ -387,3 +387,202 @@ def get_context_stats(
     }
     stats["total"] = sum(stats.values())
     return stats
+
+
+# Default token budgets for risk management context
+DEFAULT_RISK_TOKEN_BUDGETS = {
+    "market_report": 600,
+    "sentiment_report": 400,
+    "news_report": 600,
+    "fundamentals_report": 600,
+    "risk_debate_history": 1200,
+    "trader_plan": 400,
+    "past_memories": 300,
+    "other_responses": 600,  # Combined risky/safe/neutral responses
+    "system_prompt": 400,
+    "total_max": 5500,  # Leave room for model response (8192 - response tokens)
+}
+
+
+def summarize_risk_debate_history(
+    history: str,
+    llm,
+    max_tokens: int = 1200,
+    model: str = "gpt-4o-mini"
+) -> str:
+    """
+    Summarize risk debate history, keeping recent exchanges intact.
+
+    Strategy: Keep the last exchange from each analyst verbatim, summarize earlier ones.
+
+    Args:
+        history: The full risk debate history
+        llm: The LLM to use for summarization
+        max_tokens: Maximum tokens for the history
+        model: The model name to use for tokenization
+
+    Returns:
+        Condensed risk debate history
+    """
+    if not history:
+        return history
+
+    current_tokens = count_tokens(history, model)
+    if current_tokens <= max_tokens:
+        return history
+
+    # Split by analyst markers to identify exchanges
+    lines = history.split('\n')
+    exchanges = []
+    current_exchange = []
+
+    for line in lines:
+        if line.startswith(('Risky Analyst:', 'Safe Analyst:', 'Neutral Analyst:')):
+            if current_exchange:
+                exchanges.append('\n'.join(current_exchange))
+            current_exchange = [line]
+        else:
+            current_exchange.append(line)
+
+    if current_exchange:
+        exchanges.append('\n'.join(current_exchange))
+
+    # Keep at least the last 3 exchanges intact (one from each analyst type)
+    if len(exchanges) <= 3:
+        return truncate_to_tokens(history, max_tokens, model)
+
+    # Summarize earlier exchanges, keep recent ones
+    earlier_exchanges = '\n\n'.join(exchanges[:-3])
+    recent_exchanges = '\n\n'.join(exchanges[-3:])
+
+    recent_tokens = count_tokens(recent_exchanges, model)
+    available_for_summary = max_tokens - recent_tokens - 50  # Buffer for labels
+
+    if available_for_summary < 100:
+        # Not enough room for summary, just keep recent
+        return recent_exchanges
+
+    summary_prompt = f"""Summarize the key risk assessment points from this debate exchange concisely:
+
+{earlier_exchanges}
+
+Summary of earlier risk debate points:"""
+
+    try:
+        response = llm.invoke(summary_prompt)
+        summary = response.content if hasattr(response, 'content') else str(response)
+        summary = truncate_to_tokens(summary, available_for_summary, model)
+
+        return f"[Earlier risk debate summary]: {summary}\n\n[Recent exchanges]:\n{recent_exchanges}"
+    except Exception:
+        return truncate_to_tokens(history, max_tokens, model)
+
+
+def reduce_risk_management_context(
+    market_report: str,
+    sentiment_report: str,
+    news_report: str,
+    fundamentals_report: str,
+    history: str,
+    trader_plan: str,
+    past_memories: str,
+    other_responses: str,
+    llm,
+    token_budgets: Optional[Dict[str, int]] = None,
+    model: str = "gpt-4o-mini"
+) -> Dict[str, str]:
+    """
+    Reduce context for risk management agents to fit within token limits.
+
+    This function applies summarization and truncation to ensure the total
+    context fits within the model's context window (8192 tokens for gpt-4o-mini).
+
+    Args:
+        market_report: Market analysis report
+        sentiment_report: Social media sentiment report
+        news_report: News analysis report
+        fundamentals_report: Company fundamentals report
+        history: Risk debate history
+        trader_plan: The trader's investment plan
+        past_memories: Retrieved past memories
+        other_responses: Combined responses from other analysts
+        llm: LLM to use for summarization
+        token_budgets: Optional custom token budgets
+        model: The model name to use for tokenization
+
+    Returns:
+        Dictionary containing the reduced context components
+    """
+    budgets = token_budgets or DEFAULT_RISK_TOKEN_BUDGETS
+
+    # Map component names to their content and report types
+    components = {
+        "market_report": {"content": market_report, "type": "market analysis"},
+        "sentiment_report": {"content": sentiment_report, "type": "social media sentiment"},
+        "news_report": {"content": news_report, "type": "news analysis"},
+        "fundamentals_report": {"content": fundamentals_report, "type": "company fundamentals"},
+        "risk_debate_history": {"content": history, "type": "risk debate history"},
+        "trader_plan": {"content": trader_plan, "type": "trader plan"},
+        "past_memories": {"content": past_memories, "type": "memories"},
+        "other_responses": {"content": other_responses, "type": "analyst responses"},
+    }
+
+    # Calculate current token usage
+    current_usage = {k: count_tokens(v["content"], model) for k, v in components.items()}
+    total_tokens = sum(current_usage.values())
+    total_budget = budgets.get("total_max", 5500)
+
+    # If within total budget, return as-is
+    if total_tokens <= total_budget:
+        return {k: v["content"] for k, v in components.items()}
+
+    reduced_content = {k: v["content"] for k, v in components.items()}
+
+    # 1. Reduce components exceeding individual budgets
+    for key, usage in current_usage.items():
+        budget = budgets.get(key, 600)  # Default fallback
+        if usage > budget:
+            content = components[key]["content"]
+            report_type = components[key]["type"]
+
+            if key == "risk_debate_history":
+                reduced_content[key] = summarize_risk_debate_history(content, llm, budget, model)
+            elif key in ["trader_plan", "past_memories", "other_responses"]:
+                reduced_content[key] = truncate_to_tokens(content, budget, model)
+            else:
+                reduced_content[key] = summarize_text(content, llm, report_type, budget, model)
+
+            # Update usage after reduction
+            current_usage[key] = count_tokens(reduced_content[key], model)
+
+    # Recalculate total
+    total_tokens = sum(current_usage.values())
+
+    # 2. If still over total budget, reduce proportionally
+    if total_tokens > total_budget:
+        # Sort components by size (descending)
+        sorted_components = sorted(current_usage.items(), key=lambda x: x[1], reverse=True)
+
+        for key, usage in sorted_components:
+            if total_tokens <= total_budget:
+                break
+
+            # Calculate how much we need to shave off
+            excess = total_tokens - total_budget
+
+            # Don't reduce a component to nothing, keep at least 50% of its budget or 100 tokens
+            min_tokens = max(budgets.get(key, 0) // 2, 100)
+
+            if usage > min_tokens:
+                # Target reduction: try to remove excess, but respect min_tokens
+                reduction_target = max(usage - excess, min_tokens)
+
+                # Apply further truncation
+                reduced_content[key] = truncate_to_tokens(reduced_content[key], reduction_target, model)
+
+                # Update usage
+                new_usage = count_tokens(reduced_content[key], model)
+                total_tokens -= (usage - new_usage)
+                current_usage[key] = new_usage
+
+    return reduced_content

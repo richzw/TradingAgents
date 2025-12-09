@@ -1,8 +1,28 @@
 import time
 import json
 
+from tradingagents.agents.utils.context_reduction import (
+    reduce_risk_management_context,
+)
 
-def create_risk_manager(llm, memory):
+
+def create_risk_manager(llm, memory, summarization_llm=None, config=None):
+    """
+    Create a risk manager node.
+
+    Args:
+        llm: The LLM to use for generating the final decision
+        memory: The memory store for retrieving past experiences
+        summarization_llm: Optional LLM for context summarization (defaults to llm)
+        config: Optional config dict with token_budgets and enable_context_reduction
+    """
+    # Use the main LLM for summarization if not provided
+    summary_llm = summarization_llm or llm
+
+    # Get config settings
+    enable_reduction = config.get("enable_context_reduction", True) if config else True
+    token_budgets = config.get("token_budgets", None) if config else None
+
     def risk_manager_node(state) -> dict:
 
         company_name = state["company_of_interest"]
@@ -11,7 +31,7 @@ def create_risk_manager(llm, memory):
         risk_debate_state = state["risk_debate_state"]
         market_research_report = state["market_report"]
         news_report = state["news_report"]
-        fundamentals_report = state["news_report"]
+        fundamentals_report = state["fundamentals_report"]  # Fixed: was incorrectly using news_report
         sentiment_report = state["sentiment_report"]
         trader_plan = state["investment_plan"]
 
@@ -21,6 +41,25 @@ def create_risk_manager(llm, memory):
         past_memory_str = ""
         for i, rec in enumerate(past_memories, 1):
             past_memory_str += rec["recommendation"] + "\n\n"
+
+        # Apply context reduction if enabled
+        if enable_reduction:
+            reduced_context = reduce_risk_management_context(
+                market_research_report,
+                sentiment_report,
+                news_report,
+                fundamentals_report,
+                history,
+                trader_plan,
+                past_memory_str,
+                "",  # No other responses for the judge
+                summary_llm,
+                token_budgets,
+            )
+
+            history = reduced_context["risk_debate_history"]
+            trader_plan = reduced_context["trader_plan"]
+            past_memory_str = reduced_context["past_memories"]
 
         prompt = f"""As the Risk Management Judge and Debate Facilitator, your goal is to evaluate the debate between three risk analysts—Risky, Neutral, and Safe/Conservative—and determine the best course of action for the trader. Your decision must result in a clear recommendation: Buy, Sell, or Hold. Choose Hold only if strongly justified by specific arguments, not as a fallback when all sides seem valid. Strive for clarity and decisiveness.
 
@@ -36,7 +75,7 @@ Deliverables:
 
 ---
 
-**Analysts Debate History:**  
+**Analysts Debate History:**
 {history}
 
 ---

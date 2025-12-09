@@ -111,7 +111,10 @@ class GraphSetup:
         neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
         safe_analyst = create_safe_debator(self.quick_thinking_llm)
         risk_manager_node = create_risk_manager(
-            self.deep_thinking_llm, self.risk_manager_memory
+            self.deep_thinking_llm,
+            self.risk_manager_memory,
+            summarization_llm=self.quick_thinking_llm,
+            config=self.config,
         )
 
         # Create workflow

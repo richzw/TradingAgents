@@ -44,5 +44,7 @@ DEFAULT_CONFIG = {
     "tool_vendors": {
         # Example: "get_stock_data": "alpha_vantage",  # Override category default
         # Example: "get_news": "openai",               # Override category default
+        # Global macro news relies on OpenAI web search preview; fall back to local cache when available
+        "get_global_news": "openai,local",
     },
 }

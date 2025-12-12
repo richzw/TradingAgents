@@ -384,6 +384,13 @@ def get_reddit_global_news(
     before = curr_date_dt - relativedelta(days=look_back_days)
     before = before.strftime("%Y-%m-%d")
 
+    base_path = os.path.join(DATA_DIR, "reddit_data")
+    category_path = os.path.join(base_path, "global_news")
+
+    if not os.path.isdir(category_path):
+        print(f"Local global news data not found at {category_path}, skipping local vendor.")
+        return ""
+
     posts = []
     # iterate from before to curr_date
     curr_iter_date = datetime.strptime(before, "%Y-%m-%d")
@@ -397,7 +404,7 @@ def get_reddit_global_news(
             "global_news",
             curr_date_str,
             limit,
-            data_path=os.path.join(DATA_DIR, "reddit_data"),
+            data_path=base_path,
         )
         posts.extend(fetch_result)
         curr_iter_date += relativedelta(days=1)

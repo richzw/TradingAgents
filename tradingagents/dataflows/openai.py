@@ -1,10 +1,25 @@
+import os
 from openai import OpenAI
 from .config import get_config
 
 
+def _get_openai_client(config):
+    """
+    Create an OpenAI client using a reliable endpoint even when the primary LLM provider is not OpenAI.
+    """
+    default_base = "https://api.openai.com/v1"
+    # If the main provider is OpenAI, respect the configured backend_url (allows Azure/OpenRouter-style endpoints)
+    if config.get("llm_provider", "").lower() == "openai":
+        base_url = config.get("backend_url", default_base)
+    else:
+        # When using Anthropic/Google/etc., force the news tool to talk to OpenAI unless explicitly overridden
+        base_url = config.get("openai_backend_url", default_base)
+    return OpenAI(base_url=base_url)
+
+
 def get_stock_news_openai(query, start_date, end_date):
     config = get_config()
-    client = OpenAI(base_url=config["backend_url"])
+    client = _get_openai_client(config)
 
     response = client.responses.create(
         model=config["quick_think_llm"],
@@ -39,7 +54,7 @@ def get_stock_news_openai(query, start_date, end_date):
 
 def get_global_news_openai(curr_date, look_back_days=7, limit=5):
     config = get_config()
-    client = OpenAI(base_url=config["backend_url"])
+    client = _get_openai_client(config)
 
     response = client.responses.create(
         model=config["quick_think_llm"],
@@ -74,7 +89,7 @@ def get_global_news_openai(curr_date, look_back_days=7, limit=5):
 
 def get_fundamentals_openai(ticker, curr_date):
     config = get_config()
-    client = OpenAI(base_url=config["backend_url"])
+    client = _get_openai_client(config)
 
     response = client.responses.create(
         model=config["quick_think_llm"],
